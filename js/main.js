@@ -10,6 +10,8 @@ let loadingResolution;
 let spineData;
 
 let customScale = 1;
+let positionX = 0;
+let positionY = 0;
 let targetFps = 60;
 let bgmfile = './assets/audio/Theme_372.ogg';
 let bgmvolume = 0;
@@ -38,7 +40,17 @@ const MAX_RENDER_SCALE = 2;
 const MAX_RENDER_PIXELS = 5120 * 2880;
 
 let currentTracks = []; // 跟踪当前播放的音频
-window.selectedLanguage = 'Japanese'; // 全局语言变量（挂载到window对象）
+let interfaceLanguage = 'default';
+let steamLanguage = '';
+let subtitleLanguagePreference = 'auto';
+window.selectedLanguage = 'English';
+const subtitleLocales = {
+	English: 'en',
+	Chinese: 'zh-Hans',
+	TraditionalChinese: 'zh-Hant',
+	Japanese: 'ja',
+	Korean: 'ko'
+};
 let isVoicelinePlaying = false;
 
 const CHARACTER = 'CH0322';
@@ -64,6 +76,16 @@ const AUDIO_DETAIL = [
                 "……一直以来承蒙关照了，老师。",
                 "这熟悉的……天花板呢。",
                 "不管怎么说，能见到你真是太好了。"
+            ],
+            TraditionalChinese: [
+                "……一直以來承蒙關照了，老師。",
+                "這熟悉的……天花板呢。",
+                "不管怎麼說，能見到你真是太好了。"
+            ],
+            Korean: [
+                "항상 나를 돌봐주셔서 감사합니다.",
+                "익숙한 천장...",
+                "어떻게든 널 볼 수 있어서 너무 행복해."
             ]
         }
     },
@@ -83,6 +105,16 @@ const AUDIO_DETAIL = [
                 "嗯？问我为什么会出现在快递箱里……？因为“塞得进去”嘛。",
                 "买完车票之后，钱就不够买伴手礼了……。",
                 "然后我刚好看到夏莱有个寄给老师的纸箱。所以，我就试着把自己变成伴手礼了。"
+            ],
+            TraditionalChinese: [
+                "嗯？問我為什麼會出現在快遞箱裡……？因為“塞得進去”嘛。",
+                "買完車票之後，錢就不夠買伴手禮了……。",
+                "然後我剛好看到夏萊有個寄給老師的紙箱。所以，我就試著把自己變成伴手禮了。"
+            ],
+            Korean: [
+                "왜 내가 배달 패키지 안에 있어?",
+                "기차 티켓을 샀는데 기념품에 돈이 없어서...",
+                "그리고 스켈에 선생님에게 지목된 카르도드 박스가 있다는 걸 알게 됐습니다. 그래서 저는 그 기념품이 되기로 결심했습니다."
             ]
         }
     },
@@ -102,6 +134,16 @@ const AUDIO_DETAIL = [
                 "没问题的。我很擅长消磨时间——",
                 "缓冲材料软绵绵的，而且老师在拆快递的时候也很小心，所以我很安全哦。",
                 "呼呼……"
+            ],
+            TraditionalChinese: [
+                "沒問題的。我很擅長消磨時間——",
+                "緩衝材料軟綿綿的，而且老師在拆快遞的時候也很小心，所以我很安全哦。",
+                "呼呼……"
+            ],
+            Korean: [
+                "아무 문제도 없지, 시간을 살리는 데는 꽤 잘해요.",
+                "포장재가 좋고 푹신한데, 당신이 너무 조심해서 열었기 때문에, 선생님, 저는 완전히 괜찮습니다.",
+                "젠장..."
             ]
         }
     },
@@ -121,6 +163,16 @@ const AUDIO_DETAIL = [
                 "能像这样看到你的脸，我好开心。",
                 "我真的，好想见你啊。老师。",
                 "嗯……"
+            ],
+            TraditionalChinese: [
+                "能像這樣看到你的臉，我好開心。",
+                "我真的，好想見你啊。老師。",
+                "嗯……"
+            ],
+            Korean: [
+                "네 얼굴을 이렇게 볼 수 있어서 너무 행복해",
+                "널 보고 싶었어 선생님",
+                "맙소사"
             ]
         }
     },
@@ -140,6 +192,16 @@ const AUDIO_DETAIL = [
                 "哈啊……",
                 "那么，晚安啦。",
                 "呼呼大睡……"
+            ],
+            TraditionalChinese: [
+                "哈啊……",
+                "那麼，晚安啦。",
+                "呣喵。"
+            ],
+            Korean: [
+                "맙소사",
+                "그럼 좋은 밤",
+                "음냐."
             ]
         }
     }
@@ -344,7 +406,8 @@ function drawHitboxes() {
 		n = (n / transpose) - (d[side].length / (transpose * 2));
 		n = n * customScale + (d[side].length / (transpose * 2));
 		n = (d[side].length / (transpose * 2)) - n;
-		return d[side].mid - n;
+		const offset = side === 'x' ? canvas.width * positionX : canvas.height * positionY;
+		return d[side].mid - n + offset;
 	}
 
 	for (const key in HITBOX) {
@@ -438,12 +501,45 @@ function setMouse(event) {
 		ax = canvas.width - ax;
 	}
 
-	return { x: ax, y: ay }
+	return { x: ax - canvas.width * positionX, y: ay - canvas.height * positionY };
+}
+
+function updateSubtitleLanguage() {
+	let language = subtitleLanguagePreference;
+	if (language === 'auto') {
+		const locale = interfaceLanguage === 'default' ? steamLanguage : interfaceLanguage;
+		const [primary, region] = locale.split(/[-_]/);
+		if (primary === 'tchinese' || (primary === 'zh' && ['cht', 'hant', 'tw', 'hk', 'mo'].includes(region))) {
+			language = 'TraditionalChinese';
+		} else if (primary === 'schinese' || primary === 'zh') {
+			language = 'Chinese';
+		} else if (primary === 'ja' || primary === 'japanese') {
+			language = 'Japanese';
+		} else if (primary === 'ko' || primary === 'korean' || primary === 'koreana') {
+			language = 'Korean';
+		} else {
+			language = 'English';
+		}
+	}
+
+	if (language === window.selectedLanguage) return;
+	window.selectedLanguage = language;
+	textbox.lang = subtitleLocales[language];
+	const clip = currentTracks.at(-1);
+	if (dialogBox && clip) textbox.textContent = clip.dialog[language][clip.index];
 }
 
 function init() {
 	// Wallpaper Engine settings
 	window.wallpaperPropertyListener = {
+		applyGeneralProperties: (props) => {
+			const language = props.language?.value ?? props.language;
+			const steamLocale = props.steamlanguage?.value ?? props.steamlanguage;
+			if (typeof language !== 'string' && typeof steamLocale !== 'string') return;
+			if (typeof language === 'string') interfaceLanguage = language.toLowerCase();
+			if (typeof steamLocale === 'string') steamLanguage = steamLocale.toLowerCase();
+			updateSubtitleLanguage();
+		},
 		applyUserProperties: (props) => {
 			if (props.schemecolor) {
 				bufferColor = props.schemecolor.value.split(" ");
@@ -452,8 +548,16 @@ function init() {
 			if (props.scale) {
 				customScale = props.scale.value;
 				document.documentElement.style.setProperty('--wallpaper-scale', customScale);
-				resize();
 			}
+			if (props.positionx) {
+				positionX = props.positionx.value / 100;
+				document.documentElement.style.setProperty('--wallpaper-position-x', props.positionx.value + 'vw');
+			}
+			if (props.positiony) {
+				positionY = props.positiony.value / 100;
+				document.documentElement.style.setProperty('--wallpaper-position-y', props.positiony.value + 'vh');
+			}
+			if (props.scale || props.positionx || props.positiony) resize();
 			if (props.targetfps) targetFps = props.targetfps.value;
 
 			if (props.introanimation) introAnimation = props.introanimation.value;
@@ -495,18 +599,15 @@ function init() {
 
 			// 监听模型分辨率设置
 			if (props.modelresolution) modelResolution = props.modelresolution.value;
-			if (assetManager && typeof introAnimation !== 'undefined' && !modelFrame && loadingResolution !== modelResolution) {
+			if (assetManager && typeof introAnimation !== 'undefined' && !modelFrame &&
+				(props.modelresolution || loadingResolution !== modelResolution)) {
 				reloadModel();
 			}
 
-			// 新增：监听语言选择
 			if (props.dialoglanguage) {
-				window.selectedLanguage = props.dialoglanguage.value; // 更新全局语言变量
-				// 更新当前播放的音频文本
-				const clip = currentTracks[currentTracks.length - 1];
-				if (dialogBox && clip) {
-					textbox.textContent = clip.dialog[window.selectedLanguage][clip.index];
-				}
+				const language = props.dialoglanguage.value;
+				subtitleLanguagePreference = Object.hasOwn(subtitleLocales, language) ? language : 'auto';
+				updateSubtitleLanguage();
 			}
 
 			if (props.bgmfile) {
@@ -529,6 +630,7 @@ function init() {
 	};
 
 	textbox = document.getElementById('textbox');
+	textbox.lang = subtitleLocales[window.selectedLanguage];
 
 	canvas = document.getElementById('canvas');
 	canvas.addEventListener('mouseleave', releaseHeadpatOnExit);
@@ -658,6 +760,8 @@ function reloadModel() {
 
 // CITATION: http://esotericsoftware.com/spine-api-reference#
 // CITATION: http://en.esotericsoftware.com/forum/Spine-Unity-Making-the-arm-follow-the-mouse-7856
+let modelMouseHandlersBound = false;
+
 function interactionLoad() {
 	// Touch_Point and Touch_Eye
 	TPoint = spineData.skeleton.findBone('Touch_Point');
@@ -665,28 +769,31 @@ function interactionLoad() {
 	EPointX = TEye.x;
 	EPointY = TEye.y;
 
-	downaction = canvas.addEventListener('mousedown', function (event) {
-		if (isVoicelinePlaying || !acceptingClick) {
-			return;
-		}
-		acceptingClick = false;
-		let mouseData = setMouse(event);
-		pressedMouse(mouseData.x, mouseData.y);
-	});
-	upaction = canvas.addEventListener('mouseup', function () {
-		// Only call releasedMouse if there was a valid mousedown interaction
-		// (i.e., mouseSelect is not -1 or acceptingClick was set to false by pressedMouse)
-		if (mouseSelect !== -1) {
-			releasedMouse();
-		} else {
-			// Ensure acceptingClick is restored even if no interaction occurred
-			if (!headpatCooldown) acceptingClick = true;
-		}
-	});
-	moveaction = canvas.addEventListener('mousemove', function (event) {
-		let mouseData = setMouse(event);
-		movedMouse(mouseData.x, mouseData.y);
-	});
+	if (!modelMouseHandlersBound) {
+		modelMouseHandlersBound = true;
+		downaction = canvas.addEventListener('mousedown', function (event) {
+			if (isVoicelinePlaying || !acceptingClick) {
+				return;
+			}
+			acceptingClick = false;
+			let mouseData = setMouse(event);
+			pressedMouse(mouseData.x, mouseData.y);
+		});
+		upaction = canvas.addEventListener('mouseup', function () {
+			// Only call releasedMouse if there was a valid mousedown interaction
+			// (i.e., mouseSelect is not -1 or acceptingClick was set to false by pressedMouse)
+			if (mouseSelect !== -1) {
+				releasedMouse();
+			} else {
+				// Ensure acceptingClick is restored even if no interaction occurred
+				if (!headpatCooldown) acceptingClick = true;
+			}
+		});
+		moveaction = canvas.addEventListener('mousemove', function (event) {
+			let mouseData = setMouse(event);
+			movedMouse(mouseData.x, mouseData.y);
+		});
+	}
 
 	if (!introAnimation) {
 		acceptingClick = true;
@@ -884,7 +991,7 @@ function resize() {
 		transpose = 1600 / canvas.height;
 	}
 
-	mvp.ortho2d(centerX - width / 2, centerY - height / 2, width, height);
+	mvp.ortho2d(centerX - width / 2 - positionX * width, centerY - height / 2 + positionY * height, width, height);
 	gl.viewport(0, 0, canvas.width, canvas.height);
 }
 
